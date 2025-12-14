@@ -1,0 +1,613 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0, user-scalable=no">
+    <title>COSMOS | Interactive Flow Engine</title>
+    <style>
+        @import url('https://fonts.googleapis.com/css2?family=Exo+2:wght@100;400;700&display=swap');
+
+        :root { --primary: #00f2ff; --secondary: #ff0055; --bg: #050508; }
+
+        body { 
+            margin: 0; overflow: hidden; background: var(--bg); 
+            font-family: 'Exo 2', sans-serif; user-select: none;
+            cursor: crosshair;
+        }
+
+        canvas { display: block; width: 100vw; height: 100vh; }
+
+        /* --- HUD --- */
+        #hud {
+            position: absolute; top: 0; left: 0; width: 100%; height: 100%;
+            pointer-events: none;
+            display: flex; flex-direction: column; justify-content: space-between;
+            padding: 2rem; box-sizing: border-box;
+            background: radial-gradient(circle at center, transparent 0%, rgba(0,0,0,0.4) 100%);
+        }
+
+        .top-bar { display: flex; justify-content: space-between; align-items: flex-start; }
+        .bottom-bar { display: flex; justify-content: center; align-items: flex-end; width: 100%; }
+
+        h1 { 
+            margin: 0; font-weight: 100; font-size: 2rem; letter-spacing: 0.5rem; 
+            color: rgba(255,255,255,0.9); text-shadow: 0 0 20px var(--primary);
+        }
+        .subtitle { font-size: 0.7rem; color: var(--primary); letter-spacing: 0.2rem; font-weight: 700; margin-top: 5px;}
+
+        /* --- CONTROLS --- */
+        .dock {
+            pointer-events: auto;
+            background: rgba(10, 10, 15, 0.6);
+            backdrop-filter: blur(20px);
+            border: 1px solid rgba(255,255,255,0.1);
+            border-radius: 100px;
+            padding: 10px 30px;
+            display: flex; gap: 20px;
+            box-shadow: 0 20px 50px rgba(0,0,0,0.5);
+            margin-bottom: 20px;
+            transform: translateY(0);
+            transition: transform 0.3s cubic-bezier(0.175, 0.885, 0.32, 1.275);
+        }
+
+        .dock:hover { transform: translateY(-5px); }
+
+        .btn {
+            background: transparent; border: none; color: rgba(255,255,255,0.6);
+            font-family: 'Exo 2', sans-serif; font-size: 0.8rem; font-weight: 700;
+            text-transform: uppercase; letter-spacing: 2px;
+            cursor: pointer; padding: 10px 0; position: relative;
+            transition: color 0.3s;
+        }
+
+        .btn::after {
+            content: ''; position: absolute; bottom: 5px; left: 50%; width: 0; height: 2px;
+            background: var(--primary); transition: all 0.3s ease; transform: translateX(-50%);
+            box-shadow: 0 0 10px var(--primary);
+        }
+
+        .btn:hover, .btn.active { color: #fff; }
+        .btn.active::after { width: 100%; }
+
+        /* --- STATUS --- */
+        .status-box {
+            text-align: right;
+        }
+        .data-row { display: flex; align-items: center; justify-content: flex-end; gap: 10px; margin-bottom: 5px; }
+        .label { font-size: 0.6rem; color: #666; letter-spacing: 1px; }
+        .value { font-size: 0.8rem; color: var(--primary); font-weight: 700; width: 40px; text-align: right; }
+        .bar-bg { width: 60px; height: 4px; background: rgba(255,255,255,0.1); border-radius: 2px; }
+        .bar-fill { height: 100%; background: var(--primary); width: 0%; border-radius: 2px; transition: width 0.1s; box-shadow: 0 0 8px var(--primary); }
+
+        /* --- LOADER --- */
+        #loader {
+            position: fixed; inset: 0; background: #000; z-index: 999;
+            display: flex; flex-direction: column; justify-content: center; align-items: center;
+            transition: opacity 1s;
+        }
+        .scanner {
+            width: 100%; height: 2px; background: linear-gradient(90deg, transparent, var(--primary), transparent);
+            position: absolute; top: 50%; animation: scan 2s infinite ease-in-out;
+        }
+        @keyframes scan { 0% { transform: translateY(-20px); opacity: 0; } 50% { opacity: 1; } 100% { transform: translateY(20px); opacity: 0; } }
+
+        .input_video { display: none; }
+    </style>
+</head>
+<body>
+
+    <div id="loader">
+        <h2 style="color:white; font-weight:100; letter-spacing:5px;">SYSTEM STARTUP</h2>
+        <div class="scanner"></div>
+    </div>
+
+    <!-- HUD LAYER -->
+    <div id="hud">
+        <div class="top-bar">
+            <div>
+                <h1>COSMOS</h1>
+                <div class="subtitle">NEURAL PARTICLE ENGINE v9.0</div>
+            </div>
+            <div class="status-box">
+                <div class="data-row">
+                    <span class="label">TRACKING</span>
+                    <div class="bar-bg"><div class="bar-fill" id="track-bar"></div></div>
+                </div>
+                <div class="data-row">
+                    <span class="label">ENERGY</span>
+                    <div class="bar-bg"><div class="bar-fill" id="energy-bar"></div></div>
+                </div>
+                <div class="data-row">
+                    <span class="label">FPS</span>
+                    <span class="value" id="fps-val">60</span>
+                </div>
+            </div>
+        </div>
+
+        <div class="bottom-bar">
+            <div class="dock">
+                <button class="btn active" onclick="app.setShape('vortex')">Vortex</button>
+                <button class="btn" onclick="app.setShape('dna')">Helix</button>
+                <button class="btn" onclick="app.setShape('sphere')">Sphere</button>
+                <button class="btn" onclick="app.setShape('cube')">Tesseract</button>
+                <button class="btn" onclick="app.takeScreenshot()">📸 Snap</button>
+            </div>
+        </div>
+    </div>
+
+    <video class="input_video"></video>
+
+    <!-- MODULE IMPORTS -->
+    <script type="importmap">
+        {
+            "imports": {
+                "three": "https://unpkg.com/three@0.160.0/build/three.module.js",
+                "three/addons/": "https://unpkg.com/three@0.160.0/examples/jsm/"
+            }
+        }
+    </script>
+    <!-- MEDIAPIPE -->
+    <script src="https://cdn.jsdelivr.net/npm/@mediapipe/camera_utils/camera_utils.js" crossorigin="anonymous"></script>
+    <script src="https://cdn.jsdelivr.net/npm/@mediapipe/control_utils/control_utils.js" crossorigin="anonymous"></script>
+    <script src="https://cdn.jsdelivr.net/npm/@mediapipe/hands/hands.js" crossorigin="anonymous"></script>
+
+    <!-- APP SCRIPT -->
+    <script type="module">
+        import * as THREE from 'three';
+        import { EffectComposer } from 'three/addons/postprocessing/EffectComposer.js';
+        import { RenderPass } from 'three/addons/postprocessing/RenderPass.js';
+        import { UnrealBloomPass } from 'three/addons/postprocessing/UnrealBloomPass.js';
+        import { ShaderPass } from 'three/addons/postprocessing/ShaderPass.js';
+        import { RGBELoader } from 'three/addons/loaders/RGBELoader.js';
+
+        // --- CUSTOM SHADER MATERIAL (GPU POWER) ---
+        // This is much faster than standard Three.js materials for 20k particles
+        const particleVertex = `
+            attribute float size;
+            attribute vec3 customColor;
+            varying vec3 vColor;
+            uniform float uTime;
+            uniform float uScale;
+            
+            void main() {
+                vColor = customColor;
+                vec3 pos = position;
+                
+                // Breathing effect
+                // pos *= 1.0 + sin(uTime * 0.5) * 0.05;
+
+                vec4 mvPosition = modelViewMatrix * vec4(pos, 1.0);
+                
+                // Size attenuation (particles get smaller when far away)
+                gl_PointSize = size * uScale * (400.0 / -mvPosition.z);
+                gl_Position = projectionMatrix * mvPosition;
+            }
+        `;
+
+        const particleFragment = `
+            varying vec3 vColor;
+            
+            void main() {
+                // Soft glow circle calculation
+                vec2 center = gl_PointCoord - vec2(0.5);
+                float dist = length(center);
+                float alpha = 1.0 - smoothstep(0.3, 0.5, dist);
+                
+                // Hot core
+                float core = 1.0 - smoothstep(0.0, 0.1, dist);
+                vec3 finalColor = mix(vColor, vec3(1.0), core * 0.6);
+
+                gl_FragColor = vec4(finalColor, alpha);
+            }
+        `;
+
+        class CosmosApp {
+            constructor() {
+                this.config = {
+                    count: 22000,
+                    starCount: 5000,
+                    baseSize: 0.12,
+                    shape: 'vortex',
+                    hueSpeed: 0.001
+                };
+
+                this.state = {
+                    handActive: false,
+                    pinch: 0, // 0 to 1
+                    rotation: { x: 0, y: 0 },
+                    expansion: 1.0,
+                    energy: 0.5
+                };
+
+                this.time = 0;
+                this.frameCount = 0;
+                this.lastTime = performance.now();
+
+                this.initWorld();
+                this.initParticles();
+                this.initBackgroundStars();
+                this.initPostProcessing();
+                this.initInput();
+                this.animate();
+            }
+
+            initWorld() {
+                this.scene = new THREE.Scene();
+                this.scene.fog = new THREE.FogExp2(0x050508, 0.02);
+
+                this.camera = new THREE.PerspectiveCamera(75, window.innerWidth/window.innerHeight, 0.1, 1000);
+                this.camera.position.z = 30;
+
+                this.renderer = new THREE.WebGLRenderer({ 
+                    antialias: false, 
+                    powerPreference: "high-performance",
+                    preserveDrawingBuffer: true // For screenshots
+                });
+                this.renderer.setSize(window.innerWidth, window.innerHeight);
+                this.renderer.setPixelRatio(Math.min(window.devicePixelRatio, 2));
+                document.body.appendChild(this.renderer.domElement);
+            }
+
+            initParticles() {
+                // Main Interactive System
+                this.geo = new THREE.BufferGeometry();
+                const pos = new Float32Array(this.config.count * 3);
+                const color = new Float32Array(this.config.count * 3);
+                const sizes = new Float32Array(this.config.count);
+                
+                // Physics buffers (CPU)
+                this.targets = new Float32Array(this.config.count * 3);
+                this.velocities = new Float32Array(this.config.count * 3);
+                this.randoms = new Float32Array(this.config.count);
+
+                const c1 = new THREE.Color(0x00f2ff); // Cyan
+                const c2 = new THREE.Color(0xff0055); // Magenta
+
+                for(let i=0; i<this.config.count; i++) {
+                    const i3 = i*3;
+                    pos[i3] = (Math.random()-0.5)*50;
+                    pos[i3+1] = (Math.random()-0.5)*50;
+                    pos[i3+2] = (Math.random()-0.5)*50;
+
+                    this.randoms[i] = Math.random();
+                    sizes[i] = this.config.baseSize * (0.5 + Math.random() * 1.5);
+                    
+                    // Mix colors
+                    const mixColor = c1.clone().lerp(c2, Math.random());
+                    color[i3] = mixColor.r;
+                    color[i3+1] = mixColor.g;
+                    color[i3+2] = mixColor.b;
+                }
+
+                this.geo.setAttribute('position', new THREE.BufferAttribute(pos, 3));
+                this.geo.setAttribute('customColor', new THREE.BufferAttribute(color, 3));
+                this.geo.setAttribute('size', new THREE.BufferAttribute(sizes, 1));
+
+                this.mat = new THREE.ShaderMaterial({
+                    uniforms: {
+                        uTime: { value: 0 },
+                        uScale: { value: 1.0 }
+                    },
+                    vertexShader: particleVertex,
+                    fragmentShader: particleFragment,
+                    transparent: true,
+                    depthWrite: false,
+                    blending: THREE.AdditiveBlending
+                });
+
+                this.system = new THREE.Points(this.geo, this.mat);
+                this.scene.add(this.system);
+                this.updateShape('vortex');
+            }
+
+            initBackgroundStars() {
+                // Secondary system for depth (Background stars that don't move much)
+                const starGeo = new THREE.BufferGeometry();
+                const starPos = new Float32Array(this.config.starCount * 3);
+                for(let i=0; i<this.config.starCount*3; i++) {
+                    starPos[i] = (Math.random()-0.5) * 200; // Far spread
+                }
+                starGeo.setAttribute('position', new THREE.BufferAttribute(starPos, 3));
+                const starMat = new THREE.PointsMaterial({
+                    color: 0x444455, size: 0.1, transparent: true, opacity: 0.6
+                });
+                this.bgStars = new THREE.Points(starGeo, starMat);
+                this.scene.add(this.bgStars);
+            }
+
+            initPostProcessing() {
+                this.composer = new EffectComposer(this.renderer);
+                this.composer.addPass(new RenderPass(this.scene, this.camera));
+
+                // 1. GLOW (Bloom)
+                const bloom = new UnrealBloomPass(new THREE.Vector2(window.innerWidth, window.innerHeight), 1.5, 0.4, 0.85);
+                bloom.threshold = 0.15;
+                bloom.strength = 1.6;
+                bloom.radius = 0.8;
+                this.composer.addPass(bloom);
+
+                // 2. CHROMATIC ABERRATION (Lens Distortion effect)
+                const aberrationShader = {
+                    uniforms: {
+                        "tDiffuse": { value: null },
+                        "amount":   { value: 0.002 }
+                    },
+                    vertexShader: `
+                        varying vec2 vUv; 
+                        void main() { vUv = uv; gl_Position = projectionMatrix * modelViewMatrix * vec4( position, 1.0 ); }
+                    `,
+                    fragmentShader: `
+                        uniform sampler2D tDiffuse;
+                        uniform float amount;
+                        varying vec2 vUv;
+                        void main() {
+                            vec2 uv = vUv;
+                            // Split RGB channels slightly based on distance from center
+                            float dist = distance(uv, vec2(0.5));
+                            float offset = amount * dist * 2.0;
+                            
+                            float r = texture2D(tDiffuse, uv + vec2(offset, 0.0)).r;
+                            float g = texture2D(tDiffuse, uv).g;
+                            float b = texture2D(tDiffuse, uv - vec2(offset, 0.0)).b;
+                            gl_FragColor = vec4(r, g, b, 1.0);
+                        }
+                    `
+                };
+                this.composer.addPass(new ShaderPass(aberrationShader));
+            }
+
+            updateShape(type) {
+                this.config.shape = type;
+                const count = this.config.count;
+                
+                for(let i=0; i<count; i++) {
+                    const i3 = i*3;
+                    let x, y, z;
+
+                    if(type === 'vortex') {
+                        // Tornado spiral
+                        const t = (i / count) * Math.PI * 20;
+                        const r = (i / count) * 15; 
+                        x = Math.cos(t) * r;
+                        z = Math.sin(t) * r;
+                        y = (i / count) * 20 - 10;
+                    } 
+                    else if (type === 'sphere') {
+                        const r = 12 * Math.cbrt(Math.random()); // Even distribution
+                        const theta = Math.random() * Math.PI * 2;
+                        const phi = Math.acos(2 * Math.random() - 1);
+                        x = r * Math.sin(phi) * Math.cos(theta);
+                        y = r * Math.sin(phi) * Math.sin(theta);
+                        z = r * Math.cos(phi);
+                    }
+                    else if (type === 'dna') {
+                        // Double Helix
+                        const t = (i/count) * Math.PI * 10;
+                        const strand = (i % 2 === 0) ? 1 : -1;
+                        const r = 8;
+                        x = Math.cos(t) * r + strand * 2;
+                        z = Math.sin(t) * r + strand * 2;
+                        y = (i/count) * 40 - 20;
+                    }
+                    else if (type === 'cube') {
+                        const s = 18;
+                        x = (Math.random()-0.5)*s;
+                        y = (Math.random()-0.5)*s;
+                        z = (Math.random()-0.5)*s;
+                    }
+
+                    this.targets[i3] = x;
+                    this.targets[i3+1] = y;
+                    this.targets[i3+2] = z;
+                }
+            }
+
+            setShape(name) {
+                this.updateShape(name);
+                document.querySelectorAll('.btn').forEach(b => b.classList.remove('active'));
+                event.target.classList.add('active');
+            }
+
+            takeScreenshot() {
+                this.renderer.render(this.scene, this.camera);
+                const link = document.createElement('a');
+                link.download = 'cosmos_capture.png';
+                link.href = this.renderer.domElement.toDataURL();
+                link.click();
+            }
+
+            animate() {
+                requestAnimationFrame(this.animate.bind(this));
+                
+                // FPS Counter
+                const now = performance.now();
+                this.frameCount++;
+                if (now - this.lastTime >= 1000) {
+                    document.getElementById('fps-val').innerText = this.frameCount;
+                    this.frameCount = 0;
+                    this.lastTime = now;
+                }
+
+                this.time += 0.01;
+                this.mat.uniforms.uTime.value = this.time;
+
+                // --- 1. INTERACTION LOGIC ---
+                if(this.state.handActive) {
+                    // Hand Logic
+                    this.system.rotation.x += (this.state.rotation.x - this.system.rotation.x) * 0.05;
+                    this.system.rotation.y += (this.state.rotation.y - this.system.rotation.y) * 0.05;
+
+                    // Pinch (1) = Implode, Open (0) = Explode
+                    let targetEnergy = 1.0;
+                    let targetExpand = 1.0;
+
+                    if(this.state.pinch > 0.6) {
+                        // Black Hole Mode
+                        targetExpand = 0.1;
+                        targetEnergy = 0.2;
+                    } else {
+                        // Big Bang Mode
+                        targetExpand = 2.0;
+                        targetEnergy = 2.0;
+                    }
+                    
+                    this.state.expansion += (targetExpand - this.state.expansion) * 0.08;
+                    this.state.energy += (targetEnergy - this.state.energy) * 0.05;
+                } 
+                else {
+                    // Auto Pilot
+                    this.system.rotation.y += 0.002;
+                    this.system.rotation.z = Math.sin(this.time * 0.2) * 0.1;
+                    this.state.expansion += (1.0 - this.state.expansion) * 0.05;
+                    this.state.energy += (0.5 - this.state.energy) * 0.05;
+                }
+
+                // Update UI Bars
+                document.getElementById('energy-bar').style.width = (this.state.energy * 50) + "%";
+
+                // --- 2. PHYSICS LOOP (Optimized) ---
+                const pos = this.geo.attributes.position.array;
+                const damping = 0.94; // Air resistance
+                const noiseFreq = 0.1;
+                
+                // Global Color Shift (Dynamic Hues)
+                const hueOffset = this.time * 0.1;
+                
+                for(let i=0; i<this.config.count; i++) {
+                    const i3 = i * 3;
+
+                    // A. Calculate Target
+                    let tx = this.targets[i3] * this.state.expansion;
+                    let ty = this.targets[i3+1] * this.state.expansion;
+                    let tz = this.targets[i3+2] * this.state.expansion;
+
+                    // B. Fluid Noise (Simulate smoke/water)
+                    // We overlay sine waves based on position and time
+                    const r = this.randoms[i];
+                    const turbulence = this.state.energy * 0.5; // More energy = more chaos
+                    
+                    tx += Math.sin(ty * noiseFreq + this.time + r) * turbulence;
+                    ty += Math.cos(tz * noiseFreq + this.time + r) * turbulence;
+                    tz += Math.sin(tx * noiseFreq + this.time + r) * turbulence;
+
+                    // C. Spring Force (Hooke's Law)
+                    const ax = (tx - pos[i3]) * 0.03; // stiffness
+                    const ay = (ty - pos[i3+1]) * 0.03;
+                    const az = (tz - pos[i3+2]) * 0.03;
+
+                    // D. Apply
+                    this.velocities[i3] += ax;
+                    this.velocities[i3+1] += ay;
+                    this.velocities[i3+2] += az;
+
+                    this.velocities[i3] *= damping;
+                    this.velocities[i3+1] *= damping;
+                    this.velocities[i3+2] *= damping;
+
+                    pos[i3] += this.velocities[i3];
+                    pos[i3+1] += this.velocities[i3+1];
+                    pos[i3+2] += this.velocities[i3+2];
+                }
+
+                this.geo.attributes.position.needsUpdate = true;
+                
+                // Render with Bloom
+                this.composer.render();
+            }
+
+            initInput() {
+                // Mouse Fallback
+                window.addEventListener('mousemove', (e) => {
+                    if(!this.state.handActive) {
+                        const x = (e.clientX / window.innerWidth) * 2 - 1;
+                        const y = -(e.clientY / window.innerHeight) * 2 + 1;
+                        this.state.rotation.y = x;
+                        this.state.rotation.x = y;
+                    }
+                });
+
+                // Resize
+                window.addEventListener('resize', () => {
+                    this.camera.aspect = window.innerWidth / window.innerHeight;
+                    this.camera.updateProjectionMatrix();
+                    this.renderer.setSize(window.innerWidth, window.innerHeight);
+                    this.composer.setSize(window.innerWidth, window.innerHeight);
+                });
+            }
+
+            updateHandState(landmarks) {
+                if(landmarks) {
+                    this.state.handActive = true;
+                    document.getElementById('track-bar').style.width = "100%";
+                    document.getElementById('track-bar').style.boxShadow = "0 0 10px #00f2ff";
+
+                    // 1. Rotation (Palm center)
+                    const palm = landmarks[9];
+                    this.state.rotation.y = (palm.x - 0.5) * 3.0; // Amplify
+                    this.state.rotation.x = (palm.y - 0.5) * 3.0;
+
+                    // 2. Pinch Detection (Thumb vs Index)
+                    const thumb = landmarks[4];
+                    const index = landmarks[8];
+                    const dist = Math.sqrt(Math.pow(thumb.x - index.x, 2) + Math.pow(thumb.y - index.y, 2));
+                    
+                    // Map distance: 0.05 (Closed) -> 0.3 (Open)
+                    // We want 1.0 (Closed) -> 0.0 (Open)
+                    let p = (dist - 0.05) * 4.0;
+                    p = 1.0 - Math.min(Math.max(p, 0), 1);
+                    this.state.pinch = p;
+
+                } else {
+                    this.state.handActive = false;
+                    document.getElementById('track-bar').style.width = "0%";
+                    document.getElementById('track-bar').style.boxShadow = "none";
+                }
+            }
+        }
+
+        // --- BOOTSTRAP ---
+        const app = new CosmosApp();
+        window.app = app;
+
+        // --- VISION ENGINE ---
+        const videoElement = document.querySelector('.input_video');
+        
+        const hands = new Hands({locateFile: (file) => {
+            return `https://cdn.jsdelivr.net/npm/@mediapipe/hands/${file}`;
+        }});
+
+        hands.setOptions({
+            maxNumHands: 1,
+            modelComplexity: 1,
+            minDetectionConfidence: 0.5, 
+            minTrackingConfidence: 0.5
+        });
+
+        hands.onResults((results) => {
+            const loader = document.getElementById('loader');
+            if(loader.style.opacity !== '0') {
+                loader.style.opacity = '0';
+                setTimeout(() => loader.style.display = 'none', 1000);
+            }
+
+            if(results.multiHandLandmarks && results.multiHandLandmarks.length > 0) {
+                app.updateHandState(results.multiHandLandmarks[0]);
+            } else {
+                app.updateHandState(null);
+            }
+        });
+
+        const cam = new Camera(videoElement, {
+            onFrame: async () => { await hands.send({image: videoElement}); },
+            width: 640, height: 480
+        });
+        
+        cam.start().catch(e => {
+            console.error(e);
+            alert("Camera needed for Hand Control. Mouse mode active.");
+            document.getElementById('loader').style.display = 'none';
+        });
+
+    </script>
+</body>
+</html>
