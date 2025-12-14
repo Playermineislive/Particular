@@ -1,0 +1,529 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0, user-scalable=no">
+    <title>AETHER: DEBUG EDITION</title>
+    <style>
+        @import url('https://fonts.googleapis.com/css2?family=JetBrains+Mono:wght@400;700&family=Rajdhani:wght@500;700&display=swap');
+
+        body { 
+            margin: 0; overflow: hidden; background-color: #000; 
+            font-family: 'Rajdhani', sans-serif; color: white; user-select: none;
+        }
+
+        /* --- SYSTEM LOG (TRANSPARENT TOP) --- */
+        #sys-log {
+            position: fixed; top: 0; left: 0; width: 100%; height: 150px;
+            background: linear-gradient(to bottom, rgba(0,0,0,0.9), transparent);
+            color: #00ff00; font-family: 'JetBrains Mono', monospace; font-size: 11px;
+            padding: 10px; pointer-events: none; z-index: 9999;
+            overflow-y: hidden; text-shadow: 1px 1px 0 #000;
+            display: flex; flex-direction: column-reverse; /* Newest at bottom */
+        }
+        .log-err { color: #ff3333; font-weight: bold; }
+        .log-warn { color: #ffcc00; }
+        .log-info { color: #00f2ff; }
+
+        /* --- START SCREEN --- */
+        #start-screen {
+            position: fixed; inset: 0; background: #000; z-index: 3000;
+            display: flex; flex-direction: column; justify-content: center; align-items: center;
+        }
+        .title { font-size: 60px; margin: 0; text-shadow: 0 0 40px rgba(0,242,255,0.4); letter-spacing: 5px; }
+        
+        .start-btn {
+            margin-top: 30px;
+            border: 1px solid #00f2ff; padding: 20px 60px; font-size: 20px;
+            color: #00f2ff; background: rgba(0, 242, 255, 0.1);
+            font-family: 'JetBrains Mono', monospace; cursor: pointer;
+            transition: all 0.2s;
+        }
+        .start-btn:hover { background: #00f2ff; color: #000; box-shadow: 0 0 30px #00f2ff; }
+
+        /* --- HUD --- */
+        #hud {
+            position: absolute; inset: 0; pointer-events: none; z-index: 10;
+            padding: 20px; display: flex; flex-direction: column; justify-content: flex-end;
+            opacity: 0; transition: opacity 1s;
+        }
+
+        /* DOCK */
+        .dock-container { width: 100%; display: flex; justify-content: center; margin-bottom: 20px; }
+        .dock {
+            pointer-events: auto; background: rgba(10,10,10,0.8); border: 1px solid #333;
+            padding: 10px 30px; border-radius: 50px; display: flex; gap: 20px; backdrop-filter: blur(5px);
+        }
+        .btn {
+            background: none; border: none; color: #666; font-family: 'Rajdhani', sans-serif;
+            font-size: 16px; font-weight: 700; cursor: pointer; transition: 0.3s;
+        }
+        .btn:hover { color: #fff; }
+        .btn.active { color: #00f2ff; text-shadow: 0 0 10px #00f2ff; }
+
+        /* HAND SCANNER */
+        #scanner {
+            position: absolute; bottom: 20px; right: 20px;
+            width: 180px; height: 130px;
+            background: rgba(0, 5, 10, 0.9); border: 1px solid #00f2ff;
+            border-radius: 6px; overflow: hidden;
+        }
+        #hand-canvas { width: 100%; height: 100%; display: block; }
+
+        /* AUDIO INPUT */
+        #drop-zone {
+            position: fixed; top: 20px; left: 20px; pointer-events: auto;
+            border: 1px dashed #00f2ff; padding: 10px; border-radius: 5px;
+            color: #00f2ff; font-family: 'JetBrains Mono'; font-size: 10px;
+            background: rgba(0,0,0,0.5); cursor: pointer;
+        }
+        input[type="file"] { display: none; }
+
+        canvas { display: block; }
+        .input_video { display: none; }
+    </style>
+</head>
+<body>
+
+    <!-- 1. SYSTEM LOG (DEBUGGER) -->
+    <div id="sys-log">
+        <div>[SYSTEM] Ready for initialization...</div>
+    </div>
+
+    <!-- 2. START SCREEN -->
+    <div id="start-screen">
+        <h1 class="title">AETHER</h1>
+        <div style="color:#666; font-family:'JetBrains Mono'; font-size:12px;">SYSTEM DIAGNOSTIC & RENDER ENGINE</div>
+        <button class="start-btn" onclick="boot()">INITIALIZE</button>
+    </div>
+
+    <!-- 3. HUD -->
+    <div id="hud">
+        <label id="drop-zone">
+            DRAG MP3 OR CLICK TO UPLOAD
+            <input type="file" accept="audio/*" onchange="audioSys.handleFile(this)">
+        </label>
+
+        <div class="dock-container">
+            <div class="dock">
+                <button class="btn active" onclick="engine.morph('galaxy')">GALAXY</button>
+                <button class="btn" onclick="engine.morph('saturn')">SATURN</button>
+                <button class="btn" onclick="engine.morph('heart')">HEART</button>
+                <button class="btn" onclick="engine.morph('sphere')">SPHERE</button>
+            </div>
+        </div>
+
+        <div id="scanner">
+            <canvas id="hand-canvas"></canvas>
+        </div>
+    </div>
+
+    <canvas id="main-canvas"></canvas>
+    <video class="input_video" playsinline muted></video>
+
+    <!-- 4. LIBRARIES -->
+    <script type="importmap">
+    {
+        "imports": {
+            "three": "https://unpkg.com/three@0.160.0/build/three.module.js",
+            "three/addons/": "https://unpkg.com/three@0.160.0/examples/jsm/"
+        }
+    }
+    </script>
+    <script src="https://cdn.jsdelivr.net/npm/@mediapipe/camera_utils/camera_utils.js" crossorigin="anonymous"></script>
+    <script src="https://cdn.jsdelivr.net/npm/@mediapipe/control_utils/control_utils.js" crossorigin="anonymous"></script>
+    <script src="https://cdn.jsdelivr.net/npm/@mediapipe/hands/hands.js" crossorigin="anonymous"></script>
+
+    <script type="module">
+        import * as THREE from 'three';
+        import { EffectComposer } from 'three/addons/postprocessing/EffectComposer.js';
+        import { RenderPass } from 'three/addons/postprocessing/RenderPass.js';
+        import { UnrealBloomPass } from 'three/addons/postprocessing/UnrealBloomPass.js';
+
+        // --- LOGGER ---
+        window.log = function(msg, type='log') {
+            const logEl = document.getElementById('sys-log');
+            const entry = document.createElement('div');
+            entry.innerText = `> ${msg}`;
+            if(type === 'err') entry.className = 'log-err';
+            if(type === 'warn') entry.className = 'log-warn';
+            if(type === 'info') entry.className = 'log-info';
+            logEl.prepend(entry); // Newest on top inside the flex-reverse container (visually bottom)
+            console.log(msg);
+        };
+
+        window.onerror = function(msg, url, line) {
+            window.log(`JS ERROR: ${msg} (Line ${line})`, 'err');
+            return false;
+        };
+
+        // --- AUDIO SYSTEM ---
+        class AudioSystem {
+            constructor() {
+                this.ctx = null;
+                this.analyser = null;
+                this.dataArray = null;
+                this.levels = { bass: 0, mid: 0, high: 0 };
+                this.source = null;
+            }
+
+            async init() {
+                try {
+                    window.log("Audio: Initializing Context...", 'info');
+                    this.ctx = new (window.AudioContext || window.webkitAudioContext)();
+                    this.analyser = this.ctx.createAnalyser();
+                    this.analyser.fftSize = 512;
+                    this.analyser.smoothingTimeConstant = 0.8;
+                    this.dataArray = new Uint8Array(this.analyser.frequencyBinCount);
+                    
+                    window.log("Audio: Context Active. Attempting Mic...", 'info');
+                    // Attempt Mic
+                    try {
+                        const stream = await navigator.mediaDevices.getUserMedia({ audio: true });
+                        const src = this.ctx.createMediaStreamSource(stream);
+                        src.connect(this.analyser);
+                        window.log("Audio: Microphone Connected.", 'info');
+                    } catch(e) {
+                        window.log("Audio: Mic denied. Waiting for file.", 'warn');
+                    }
+                } catch(e) {
+                    window.log("Audio Error: " + e.message, 'err');
+                }
+            }
+
+            handleFile(input) {
+                const file = input.files[0];
+                if(!file) return;
+                window.log("Audio: Loading File...");
+                const reader = new FileReader();
+                reader.onload = (e) => {
+                    this.ctx.decodeAudioData(e.target.result, (buffer) => {
+                        if(this.source) this.source.stop();
+                        this.source = this.ctx.createBufferSource();
+                        this.source.buffer = buffer;
+                        this.source.loop = true;
+                        this.source.connect(this.analyser);
+                        this.analyser.connect(this.ctx.destination);
+                        this.source.start(0);
+                        window.log("Audio: Playing Track.", 'info');
+                    });
+                };
+                reader.readAsArrayBuffer(file);
+            }
+
+            update() {
+                if(!this.analyser) return;
+                this.analyser.getByteFrequencyData(this.dataArray);
+                let b=0, m=0, h=0;
+                for(let i=0; i<10; i++) b+=this.dataArray[i];
+                for(let i=10; i<100; i++) m+=this.dataArray[i];
+                for(let i=100; i<256; i++) h+=this.dataArray[i];
+                this.levels.bass = (b/10)/255;
+                this.levels.mid = (m/90)/255;
+                this.levels.high = (h/156)/255;
+            }
+        }
+
+        // --- SHADERS (Universal Precision) ---
+        const vertexShader = `
+            precision mediump float;
+            uniform float uTime;
+            uniform float uMix;
+            uniform float uExpansion;
+            uniform float uBass;
+            uniform float uMid;
+            
+            attribute vec3 position;
+            attribute vec3 target;
+            attribute vec3 color;
+            attribute float size;
+            attribute float random;
+
+            varying vec3 vColor;
+            varying float vAlpha;
+
+            void main() {
+                vColor = color;
+                vec3 pos = mix(position, target, uMix);
+
+                // Audio + Hand Expansion
+                float audioScale = 1.0 + (uBass * 0.5);
+                pos *= uExpansion * audioScale;
+
+                // Noise
+                float noiseAmp = (0.2 * uExpansion) + (uMid * 0.4);
+                vec3 noise = vec3(
+                    sin(uTime + pos.y * 0.2 + random*10.0),
+                    cos(uTime + pos.z * 0.2 + random*10.0),
+                    sin(uTime + pos.x * 0.2 + random*10.0)
+                );
+                pos += noise * noiseAmp;
+
+                // Rotation
+                float angle = uTime * 0.1;
+                float s = sin(angle); float c = cos(angle);
+                float nx = pos.x * c - pos.z * s;
+                float nz = pos.x * s + pos.z * c;
+                pos.x = nx; pos.z = nz;
+
+                vec4 mvPosition = modelViewMatrix * vec4(pos, 1.0);
+                
+                gl_PointSize = (size * uExpansion * audioScale) * (300.0 / -mvPosition.z);
+                if(gl_PointSize < 1.0) gl_PointSize = 1.0;
+
+                gl_Position = projectionMatrix * mvPosition;
+                vAlpha = smoothstep(0.0, 5.0, -mvPosition.z);
+            }
+        `;
+
+        const fragmentShader = `
+            precision mediump float;
+            varying vec3 vColor;
+            varying float vAlpha;
+            uniform float uHigh;
+
+            void main() {
+                vec2 uv = gl_PointCoord - 0.5;
+                float dist = length(uv);
+                if (dist > 0.5) discard;
+
+                float glow = 1.0 - smoothstep(0.0, 0.5, dist);
+                vec3 col = mix(vColor, vec3(1.0), uHigh * 0.8);
+                gl_FragColor = vec4(col, glow * vAlpha * 0.8);
+            }
+        `;
+
+        // --- GRAPHICS ENGINE ---
+        class Engine {
+            constructor() {
+                this.count = 25000;
+                this.shapes = {};
+                this.currentShape = 'galaxy';
+                this.mixValue = 0;
+                this.isMorphing = false;
+                this.hand = { active: false, targetExpand: 1.0, smoothExpand: 1.0, rotX: 0, rotY: 0 };
+            }
+
+            init() {
+                try {
+                    window.log("WebGL: Initializing...");
+                    const canvas = document.getElementById('main-canvas');
+                    this.scene = new THREE.Scene();
+                    this.scene.fog = new THREE.FogExp2(0x000000, 0.02);
+
+                    this.camera = new THREE.PerspectiveCamera(75, window.innerWidth/window.innerHeight, 0.1, 100);
+                    this.camera.position.z = 40;
+
+                    this.renderer = new THREE.WebGLRenderer({ canvas, antialias: false, powerPreference: "default" });
+                    this.renderer.setSize(window.innerWidth, window.innerHeight);
+                    this.renderer.setPixelRatio(Math.min(window.devicePixelRatio, 1.5));
+
+                    // Bloom
+                    this.composer = new EffectComposer(this.renderer);
+                    this.composer.addPass(new RenderPass(this.scene, this.camera));
+                    const bloom = new UnrealBloomPass(new THREE.Vector2(window.innerWidth, window.innerHeight), 1.5, 0.4, 0.85);
+                    bloom.strength = 1.2; bloom.radius = 0.5; bloom.threshold = 0.1;
+                    this.composer.addPass(bloom);
+
+                    this.createShapes();
+                    this.createParticles();
+                    this.animate();
+                    window.log("WebGL: Running.", 'info');
+
+                    window.addEventListener('resize', () => {
+                        this.camera.aspect = window.innerWidth/window.innerHeight;
+                        this.camera.updateProjectionMatrix();
+                        this.renderer.setSize(window.innerWidth, window.innerHeight);
+                        this.composer.setSize(window.innerWidth, window.innerHeight);
+                    });
+                } catch (e) {
+                    window.log("WebGL Failed: " + e.message, 'err');
+                }
+            }
+
+            createShapes() {
+                const getPoints = (type) => {
+                    const arr = new Float32Array(this.count * 3);
+                    for(let i=0; i<this.count; i++) {
+                        const i3 = i*3; let x,y,z;
+                        if(type==='galaxy'){
+                            const arms=5; const spin=i%arms; const r=Math.pow(Math.random(),2)*30; 
+                            const a=spin*(Math.PI*2/arms)+r*0.2; x=Math.cos(a)*r; z=Math.sin(a)*r; y=(Math.random()-0.5)*(30-r)*0.2;
+                        } else if(type==='saturn') {
+                            if(i<this.count*0.7){ const r=9; const th=Math.random()*Math.PI*2; const ph=Math.acos(2*Math.random()-1); x=r*Math.sin(ph)*Math.cos(th); y=r*Math.sin(ph)*Math.sin(th); z=r*Math.cos(ph);
+                            } else { const a=Math.random()*Math.PI*2; const r=14+Math.random()*10; x=Math.cos(a)*r; z=Math.sin(a)*r; y=(Math.random()-0.5)*0.3; }
+                            const t=0.5; const tx=x*Math.cos(t)-y*Math.sin(t); const ty=x*Math.sin(t)+y*Math.cos(t); x=tx; y=ty;
+                        } else if(type==='heart') {
+                            const t=Math.random()*Math.PI*2; const r=Math.pow(Math.random(),0.5); x=(16*Math.pow(Math.sin(t),3))*r; y=(13*Math.cos(t)-5*Math.cos(2*t)-2*Math.cos(3*t)-Math.cos(4*t))*r; z=(Math.random()-0.5)*6;
+                        } else { 
+                            const r=20*Math.cbrt(Math.random()); const th=Math.random()*Math.PI*2; const ph=Math.acos(2*Math.random()-1); x=r*Math.sin(ph)*Math.cos(th); y=r*Math.sin(ph)*Math.sin(th); z=r*Math.cos(ph);
+                        }
+                        arr[i3]=x; arr[i3+1]=y; arr[i3+2]=z;
+                    }
+                    return arr;
+                };
+                this.shapes.galaxy = getPoints('galaxy');
+                this.shapes.saturn = getPoints('saturn');
+                this.shapes.heart = getPoints('heart');
+                this.shapes.sphere = getPoints('sphere');
+            }
+
+            createParticles() {
+                const geo = new THREE.BufferGeometry();
+                geo.setAttribute('position', new THREE.BufferAttribute(new Float32Array(this.shapes.galaxy), 3));
+                geo.setAttribute('target', new THREE.BufferAttribute(new Float32Array(this.shapes.galaxy), 3));
+
+                const colors = new Float32Array(this.count * 3);
+                const sizes = new Float32Array(this.count);
+                const randoms = new Float32Array(this.count);
+                const c1 = new THREE.Color(0x00f2ff); const c2 = new THREE.Color(0xff0055);
+
+                for(let i=0; i<this.count; i++) {
+                    const i3 = i*3; const mix = c1.clone().lerp(c2, Math.random());
+                    colors[i3]=mix.r; colors[i3+1]=mix.g; colors[i3+2]=mix.b;
+                    sizes[i] = Math.random() * 3.0 + 1.0; randoms[i] = Math.random();
+                }
+
+                geo.setAttribute('color', new THREE.BufferAttribute(colors, 3));
+                geo.setAttribute('size', new THREE.BufferAttribute(sizes, 1));
+                geo.setAttribute('random', new THREE.BufferAttribute(randoms, 1));
+
+                this.material = new THREE.ShaderMaterial({
+                    uniforms: { 
+                        uTime: { value: 0 }, uMix: { value: 0 }, uExpansion: { value: 1.0 },
+                        uBass: { value: 0 }, uMid: { value: 0 }, uHigh: { value: 0 }
+                    },
+                    vertexShader, fragmentShader,
+                    transparent: true, depthWrite: false, blending: THREE.AdditiveBlending
+                });
+                this.points = new THREE.Points(geo, this.material);
+                this.scene.add(this.points);
+            }
+
+            morph(type) {
+                if(this.isMorphing || type === this.currentShape) return;
+                document.querySelectorAll('.btn').forEach(b => b.classList.remove('active')); event.target.classList.add('active');
+                this.points.geometry.attributes.target.array.set(this.shapes[type]);
+                this.points.geometry.attributes.target.needsUpdate = true;
+                this.currentShape = type; this.isMorphing = true;
+            }
+
+            animate() {
+                requestAnimationFrame(this.animate.bind(this));
+                
+                audioSys.update();
+                this.material.uniforms.uBass.value = audioSys.levels.bass;
+                this.material.uniforms.uMid.value = audioSys.levels.mid;
+                this.material.uniforms.uHigh.value = audioSys.levels.high;
+                this.material.uniforms.uTime.value += 0.02;
+
+                if(this.isMorphing) {
+                    this.mixValue += 0.02;
+                    if(this.mixValue >= 1.0) {
+                        this.mixValue = 0; this.isMorphing = false;
+                        const p = this.points.geometry.attributes.position.array;
+                        const t = this.points.geometry.attributes.target.array;
+                        p.set(t); this.points.geometry.attributes.position.needsUpdate = true;
+                    }
+                    this.material.uniforms.uMix.value = this.mixValue;
+                }
+
+                let t = this.hand.active ? this.hand.targetExpand : (1.0 + Math.sin(Date.now()*0.001)*0.1);
+                this.hand.smoothExpand += (t - this.hand.smoothExpand) * 0.1;
+                this.material.uniforms.uExpansion.value = this.hand.smoothExpand;
+
+                if(this.hand.active) {
+                    this.points.rotation.x += (this.hand.rotX - this.points.rotation.x) * 0.05;
+                    this.points.rotation.y += (this.hand.rotY - this.points.rotation.y) * 0.05;
+                } else {
+                    this.points.rotation.y += 0.002; 
+                }
+
+                this.composer.render();
+            }
+        }
+
+        // --- HAND VIS ---
+        class HandVis {
+            constructor() {
+                const canvas = document.getElementById('hand-canvas');
+                this.scene = new THREE.Scene();
+                this.camera = new THREE.PerspectiveCamera(50, 180/130, 0.1, 100);
+                this.camera.position.z = 25;
+                this.renderer = new THREE.WebGLRenderer({ canvas, alpha: true });
+                this.renderer.setSize(180, 130);
+                
+                this.joints = []; this.bones = [];
+                const mat = new THREE.MeshBasicMaterial({ color: 0x00f2ff });
+                const lMat = new THREE.LineBasicMaterial({ color: 0x0088aa, transparent: true, opacity: 0.8 });
+                const sphere = new THREE.SphereGeometry(0.8, 6, 6);
+
+                for(let i=0; i<21; i++) { const m = new THREE.Mesh(sphere, mat); this.scene.add(m); this.joints.push(m); }
+                const cons = [[0,1],[1,2],[2,3],[3,4],[0,5],[5,6],[6,7],[7,8],[0,9],[9,10],[10,11],[11,12],[0,13],[13,14],[14,15],[15,16],[0,17],[17,18],[18,19],[19,20],[5,9],[9,13],[13,17]];
+                cons.forEach(p => { const l = new THREE.Line(new THREE.BufferGeometry().setFromPoints([new THREE.Vector3(), new THREE.Vector3()]), lMat); this.scene.add(l); this.bones.push({line:l, p1:p[0], p2:p[1]}); });
+                this.render();
+            }
+            update(lm) {
+                const s = 15;
+                for(let i=0; i<21; i++) this.joints[i].position.set((0.5-lm[i].x)*s, (0.5-lm[i].y)*s, -lm[i].z*s);
+                this.bones.forEach(b => { b.line.geometry.setFromPoints([this.joints[b.p1].position, this.joints[b.p2].position]); b.line.geometry.attributes.position.needsUpdate = true; });
+            }
+            render() { requestAnimationFrame(this.render.bind(this)); this.renderer.render(this.scene, this.camera); }
+        }
+
+        // --- GLOBAL INIT ---
+        window.audioSys = new AudioSystem();
+        window.engine = new Engine();
+        const handVis = new HandVis();
+
+        window.boot = async function() {
+            document.getElementById('start-screen').style.display = 'none';
+            document.getElementById('hud').style.opacity = 1;
+            
+            await window.audioSys.init();
+            window.engine.init();
+            startCamera();
+        };
+
+        function startCamera() {
+            window.log("Camera: Requesting Access...");
+            const video = document.querySelector('.input_video');
+            const hands = new Hands({locateFile: (file) => `https://cdn.jsdelivr.net/npm/@mediapipe/hands/${file}`});
+            hands.setOptions({maxNumHands:1, modelComplexity:0, minDetectionConfidence:0.5, minTrackingConfidence:0.5}); // Complexity 0 = Fast
+            
+            hands.onResults(results => {
+                if(results.multiHandLandmarks && results.multiHandLandmarks.length > 0) {
+                    const lm = results.multiHandLandmarks[0];
+                    window.engine.hand.active = true;
+                    handVis.update(lm);
+                    
+                    const wrist = lm[0]; const tips = [4,8,12,16,20];
+                    let dist = 0; tips.forEach(i => dist += Math.sqrt(Math.pow(lm[i].x-wrist.x,2)+Math.pow(lm[i].y-wrist.y,2)));
+                    dist /= 5;
+                    let factor = Math.max(0, Math.min((dist-0.15)/0.45, 1));
+                    window.engine.hand.targetExpand = factor<0.4 ? 0.1+(factor*2.2) : 1.0+Math.pow((factor-0.4)*1.66,2)*2.5;
+                    window.engine.hand.rotY = (lm[9].x-0.5)*3.0;
+                    window.engine.hand.rotX = (lm[9].y-0.5)*3.0;
+                } else {
+                    window.engine.hand.active = false;
+                }
+            });
+
+            const cam = new Camera(video, { onFrame: async () => { await hands.send({image: video}); }, width: 320, height: 240 });
+            cam.start()
+                .then(() => window.log("Camera: Connected.", 'info'))
+                .catch(e => {
+                    window.log("Camera Failed: " + e.message, 'err');
+                    window.log("Switching to Mouse Control Fallback...", 'warn');
+                    window.addEventListener('mousemove', (e) => {
+                        window.engine.hand.active = true;
+                        window.engine.hand.rotY = (e.clientX/window.innerWidth-0.5)*3;
+                        window.engine.hand.rotX = (e.clientY/window.innerHeight-0.5)*3;
+                        // Mouse Y also controls expansion
+                        window.engine.hand.targetExpand = 1.0 + (1.0 - e.clientY/window.innerHeight);
+                    });
+                });
+        }
+    </script>
+</body>
+</html>
