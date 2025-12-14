@@ -1,0 +1,583 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0, user-scalable=no">
+    <title>Nebula | Interactive Particle System</title>
+    <style>
+        /* --- CSS RESIT & FONTS --- */
+        @import url('https://fonts.googleapis.com/css2?family=Inter:wght@300;400;600&display=swap');
+        
+        body { 
+            margin: 0; 
+            overflow: hidden; 
+            background-color: #050505; 
+            font-family: 'Inter', sans-serif;
+            color: white;
+        }
+
+        canvas { display: block; }
+
+        /* --- UI OVERLAY (GLASSMORPHISM) --- */
+        #ui-container {
+            position: absolute;
+            top: 24px;
+            right: 24px;
+            width: 300px;
+            padding: 24px;
+            background: rgba(20, 20, 20, 0.6);
+            backdrop-filter: blur(16px);
+            -webkit-backdrop-filter: blur(16px);
+            border: 1px solid rgba(255, 255, 255, 0.1);
+            border-radius: 20px;
+            box-shadow: 0 8px 32px rgba(0, 0, 0, 0.4);
+            z-index: 100;
+            transition: opacity 0.3s;
+        }
+
+        h1 { font-size: 16px; font-weight: 600; margin: 0 0 4px 0; letter-spacing: 1px; text-transform: uppercase; color: #fff; }
+        p.subtitle { font-size: 12px; color: #888; margin: 0 0 20px 0; }
+
+        .control-section { margin-bottom: 20px; }
+        .label { font-size: 11px; font-weight: 600; color: #666; text-transform: uppercase; margin-bottom: 8px; display: block; }
+
+        /* --- BUTTON GRID --- */
+        .shape-grid { display: grid; grid-template-columns: 1fr 1fr; gap: 8px; }
+        
+        button {
+            background: rgba(255, 255, 255, 0.05);
+            border: 1px solid rgba(255, 255, 255, 0.1);
+            color: #aaa;
+            padding: 10px;
+            border-radius: 8px;
+            font-size: 12px;
+            cursor: pointer;
+            transition: all 0.3s ease;
+            font-family: 'Inter', sans-serif;
+        }
+
+        button:hover { background: rgba(255, 255, 255, 0.15); color: #fff; }
+        button.active { 
+            background: #ffffff; 
+            color: #000; 
+            border-color: #fff; 
+            box-shadow: 0 0 15px rgba(255, 255, 255, 0.3);
+            font-weight: 600;
+        }
+
+        /* --- COLOR PICKER --- */
+        .color-wrapper {
+            position: relative;
+            height: 40px;
+            border-radius: 8px;
+            overflow: hidden;
+            border: 1px solid rgba(255, 255, 255, 0.2);
+        }
+        input[type="color"] {
+            -webkit-appearance: none;
+            border: none;
+            width: 150%; height: 150%;
+            position: absolute; top: -25%; left: -25%;
+            cursor: pointer;
+            background: none;
+        }
+
+        /* --- STATUS BAR --- */
+        #status-bar {
+            position: absolute; bottom: 30px; left: 50%; transform: translateX(-50%);
+            display: flex; align-items: center; gap: 10px;
+            background: rgba(0,0,0,0.5); padding: 8px 16px; border-radius: 30px;
+            border: 1px solid rgba(255,255,255,0.1);
+            pointer-events: none;
+        }
+        .indicator { width: 8px; height: 8px; border-radius: 50%; background: #444; transition: background 0.3s; }
+        .indicator.active { background: #00ff88; box-shadow: 0 0 8px #00ff88; }
+        .indicator.error { background: #ff3333; }
+        #status-text { font-size: 12px; color: #ccc; }
+
+        /* --- LOADING / ERROR OVERLAY --- */
+        #overlay {
+            position: fixed; inset: 0; background: #000; z-index: 200;
+            display: flex; flex-direction: column; justify-content: center; align-items: center;
+        }
+        .spinner { width: 40px; height: 40px; border: 3px solid rgba(255,255,255,0.3); border-top-color: #fff; border-radius: 50%; animation: spin 1s linear infinite; margin-bottom: 20px;}
+        @keyframes spin { to { transform: rotate(360deg); } }
+        
+        .error-box { display: none; text-align: center; max-width: 400px; padding: 20px; }
+        .btn-large { padding: 12px 24px; background: #333; color: white; border: none; border-radius: 8px; margin-top: 15px; cursor: pointer; }
+        .btn-large:hover { background: #555; }
+        
+        .hidden { opacity: 0; pointer-events: none; }
+        .input_video { display: none; }
+
+    </style>
+</head>
+<body>
+
+    <!-- VIDEO INPUT (HIDDEN) -->
+    <video class="input_video"></video>
+
+    <!-- UI -->
+    <div id="ui-container">
+        <h1>Nebula Engine</h1>
+        <p class="subtitle">Gestural 3D Particle System</p>
+
+        <div class="control-section">
+            <span class="label">Formation</span>
+            <div class="shape-grid">
+                <button class="active" onclick="app.setShape('heart')">Heart</button>
+                <button onclick="app.setShape('flower')">Flower</button>
+                <button onclick="app.setShape('saturn')">Saturn</button>
+                <button onclick="app.setShape('sphere')">Sphere</button>
+            </div>
+        </div>
+
+        <div class="control-section">
+            <span class="label">Atmosphere Color</span>
+            <div class="color-wrapper">
+                <input type="color" id="colorPicker" value="#00aaff">
+            </div>
+        </div>
+        
+        <div style="margin-top:20px; font-size:11px; color:#666; line-height:1.5;">
+            <strong>Controls:</strong><br>
+            👐 Hands apart → Expand<br>
+            🤏 Pinch/Fist → Condense<br>
+            👆 One hand → Rotate
+        </div>
+    </div>
+
+    <div id="status-bar">
+        <div class="indicator" id="status-light"></div>
+        <span id="status-text">Initializing AI...</span>
+    </div>
+
+    <!-- LOADING SCREEN -->
+    <div id="overlay">
+        <div class="spinner" id="loader"></div>
+        <div class="error-box" id="error-msg">
+            <h2 style="margin:0 0 10px 0">Camera Access Denied</h2>
+            <p style="color:#aaa; font-size:14px;">
+                Browser blocked the camera. This happens if you open the HTML file directly.
+            </p>
+            <button class="btn-large" onclick="app.enableMouseMode()">Enable Mouse Demo Mode</button>
+        </div>
+    </div>
+
+    <!-- ES MODULES FOR THREE.JS & POST PROCESSING -->
+    <script type="importmap">
+        {
+            "imports": {
+                "three": "https://unpkg.com/three@0.160.0/build/three.module.js",
+                "three/addons/": "https://unpkg.com/three@0.160.0/examples/jsm/"
+            }
+        }
+    </script>
+
+    <!-- MEDIAPIPE LIBRARIES -->
+    <script src="https://cdn.jsdelivr.net/npm/@mediapipe/camera_utils/camera_utils.js" crossorigin="anonymous"></script>
+    <script src="https://cdn.jsdelivr.net/npm/@mediapipe/control_utils/control_utils.js" crossorigin="anonymous"></script>
+    <script src="https://cdn.jsdelivr.net/npm/@mediapipe/hands/hands.js" crossorigin="anonymous"></script>
+
+    <!-- MAIN APP SCRIPT -->
+    <script type="module">
+        import * as THREE from 'three';
+        import { EffectComposer } from 'three/addons/postprocessing/EffectComposer.js';
+        import { RenderPass } from 'three/addons/postprocessing/RenderPass.js';
+        import { UnrealBloomPass } from 'three/addons/postprocessing/UnrealBloomPass.js';
+
+        class ParticleApp {
+            constructor() {
+                this.config = {
+                    count: 15000,
+                    size: 0.08,
+                    color: new THREE.Color('#00aaff'),
+                    shape: 'heart',
+                    expand: 1.0,
+                    scale: 1.0,
+                    mode: 'camera' // or 'mouse'
+                };
+
+                this.handState = {
+                    distance: 0,
+                    pinch: 0,
+                    isActive: false,
+                    smoothExpand: 1.0,
+                    smoothScale: 1.0,
+                    rotationX: 0,
+                    rotationY: 0
+                };
+
+                this.mouse = { x: 0, y: 0 };
+                this.time = 0;
+
+                this.initThree();
+                this.initParticles();
+                this.initPostProcessing();
+                this.initEvents();
+                this.animate();
+            }
+
+            initThree() {
+                this.scene = new THREE.Scene();
+                this.scene.fog = new THREE.FogExp2(0x050505, 0.02);
+
+                this.camera = new THREE.PerspectiveCamera(75, window.innerWidth / window.innerHeight, 0.1, 100);
+                this.camera.position.z = 25;
+
+                this.renderer = new THREE.WebGLRenderer({ antialias: false, powerPreference: "high-performance" });
+                this.renderer.setSize(window.innerWidth, window.innerHeight);
+                this.renderer.setPixelRatio(Math.min(window.devicePixelRatio, 2));
+                this.renderer.toneMapping = THREE.ReinhardToneMapping;
+                document.body.appendChild(this.renderer.domElement);
+            }
+
+            initPostProcessing() {
+                // Bloom Effect Setup
+                this.renderScene = new RenderPass(this.scene, this.camera);
+                
+                // Resolution, strength, radius, threshold
+                this.bloomPass = new UnrealBloomPass(new THREE.Vector2(window.innerWidth, window.innerHeight), 1.5, 0.4, 0.85);
+                this.bloomPass.strength = 1.8;
+                this.bloomPass.radius = 0.5;
+                this.bloomPass.threshold = 0.1;
+
+                this.composer = new EffectComposer(this.renderer);
+                this.composer.addPass(this.renderScene);
+                this.composer.addPass(this.bloomPass);
+            }
+
+            createGlowTexture() {
+                const canvas = document.createElement('canvas');
+                canvas.width = 32; canvas.height = 32;
+                const context = canvas.getContext('2d');
+                const gradient = context.createRadialGradient(16, 16, 0, 16, 16, 16);
+                gradient.addColorStop(0, 'rgba(255,255,255,1)');
+                gradient.addColorStop(0.4, 'rgba(255,255,255,0.5)');
+                gradient.addColorStop(1, 'rgba(0,0,0,0)');
+                context.fillStyle = gradient;
+                context.fillRect(0,0,32,32);
+                const tex = new THREE.CanvasTexture(canvas);
+                return tex;
+            }
+
+            initParticles() {
+                this.geometry = new THREE.BufferGeometry();
+                const posArray = new Float32Array(this.config.count * 3);
+                const targetArray = new Float32Array(this.config.count * 3);
+                const randomArray = new Float32Array(this.config.count); // For twinkling/noise
+
+                for(let i=0; i<this.config.count; i++) {
+                    posArray[i*3] = (Math.random()-0.5)*50;
+                    posArray[i*3+1] = (Math.random()-0.5)*50;
+                    posArray[i*3+2] = (Math.random()-0.5)*50;
+                    randomArray[i] = Math.random();
+                }
+
+                this.geometry.setAttribute('position', new THREE.BufferAttribute(posArray, 3));
+                this.geometry.setAttribute('target', new THREE.BufferAttribute(targetArray, 3));
+                this.geometry.setAttribute('aRandom', new THREE.BufferAttribute(randomArray, 1));
+
+                this.material = new THREE.PointsMaterial({
+                    size: this.config.size,
+                    color: this.config.color,
+                    map: this.createGlowTexture(),
+                    transparent: true,
+                    opacity: 0.9,
+                    depthWrite: false,
+                    blending: THREE.AdditiveBlending,
+                    vertexColors: false
+                });
+
+                this.particles = new THREE.Points(this.geometry, this.material);
+                this.scene.add(this.particles);
+
+                this.updateShapeTargets(this.config.shape);
+            }
+
+            getShapePosition(type, i) {
+                const i3 = i*3;
+                let x=0, y=0, z=0;
+                
+                if (type === 'heart') {
+                    const t = Math.random() * Math.PI * 2;
+                    // Distribute points inside the volume, not just shell
+                    const r = Math.pow(Math.random(), 0.3); 
+                    
+                    let hx = 16 * Math.pow(Math.sin(t), 3);
+                    let hy = 13 * Math.cos(t) - 5 * Math.cos(2*t) - 2 * Math.cos(3*t) - Math.cos(4*t);
+                    
+                    // Scale down and add volume thickness
+                    const scale = 0.5 * r;
+                    x = hx * scale;
+                    y = hy * scale;
+                    z = (Math.random()-0.5) * 4 * r;
+                }
+                else if (type === 'flower') {
+                    const angle = i * 137.5 * (Math.PI/180);
+                    const r = 0.3 * Math.sqrt(i);
+                    x = r * Math.cos(angle);
+                    y = r * Math.sin(angle);
+                    z = Math.sin(r*0.5)*2 + (Math.random()-0.5);
+                }
+                else if (type === 'saturn') {
+                    if (Math.random() > 0.4) {
+                        // Ring
+                        const ang = Math.random() * Math.PI * 2;
+                        const rad = 8 + Math.random() * 6;
+                        x = Math.cos(ang) * rad;
+                        z = Math.sin(ang) * rad;
+                        y = (Math.random()-0.5) * 0.2;
+                    } else {
+                        // Planet
+                        const r = 5 * Math.cbrt(Math.random()); 
+                        const theta = Math.random() * Math.PI * 2;
+                        const phi = Math.acos(2 * Math.random() - 1);
+                        x = r * Math.sin(phi) * Math.cos(theta);
+                        y = r * Math.sin(phi) * Math.sin(theta);
+                        z = r * Math.cos(phi);
+                    }
+                }
+                else if (type === 'sphere') {
+                     // Uniform Sphere
+                     const r = 10 * Math.cbrt(Math.random());
+                     const theta = Math.random() * Math.PI * 2;
+                     const phi = Math.acos(2 * Math.random() - 1);
+                     x = r * Math.sin(phi) * Math.cos(theta);
+                     y = r * Math.sin(phi) * Math.sin(theta);
+                     z = r * Math.cos(phi);
+                }
+                return {x, y, z};
+            }
+
+            updateShapeTargets(type) {
+                const targetAttr = this.geometry.attributes.target;
+                for(let i=0; i<this.config.count; i++) {
+                    const pos = this.getShapePosition(type, i);
+                    targetAttr.setXYZ(i, pos.x, pos.y, pos.z);
+                }
+                targetAttr.needsUpdate = true;
+            }
+
+            setShape(shape) {
+                this.config.shape = shape;
+                this.updateShapeTargets(shape);
+                // UI Update
+                document.querySelectorAll('.shape-grid button').forEach(b => {
+                    b.classList.remove('active');
+                    if(b.innerText.toLowerCase() === shape) b.classList.add('active');
+                });
+            }
+
+            initEvents() {
+                // Resize
+                window.addEventListener('resize', () => {
+                    this.camera.aspect = window.innerWidth / window.innerHeight;
+                    this.camera.updateProjectionMatrix();
+                    this.renderer.setSize(window.innerWidth, window.innerHeight);
+                    this.composer.setSize(window.innerWidth, window.innerHeight);
+                });
+
+                // Color Picker
+                document.getElementById('colorPicker').addEventListener('input', (e) => {
+                    this.material.color.set(e.target.value);
+                });
+
+                // Mouse fallback
+                window.addEventListener('mousemove', (e) => {
+                    if(this.config.mode === 'mouse') {
+                        // Normalize mouse -1 to 1
+                        this.mouse.x = (e.clientX / window.innerWidth) * 2 - 1;
+                        this.mouse.y = -(e.clientY / window.innerHeight) * 2 + 1;
+                        
+                        // Map Y to expansion (up = big, down = small)
+                        this.handState.distance = (this.mouse.y + 1) * 0.5; // 0 to 1
+                    }
+                });
+            }
+
+            enableMouseMode() {
+                this.config.mode = 'mouse';
+                document.getElementById('overlay').classList.add('hidden');
+                document.getElementById('status-text').innerText = "Mouse Demo Mode Active";
+                document.getElementById('status-light').classList.add('active');
+                
+                // Simulate active hands
+                this.handState.isActive = true;
+                this.handState.pinch = 0.2; // Default open
+            }
+
+            animate() {
+                requestAnimationFrame(this.animate.bind(this));
+                
+                this.time += 0.01;
+                
+                // --- 1. SMOOTH HAND DATA ---
+                // If using camera, these are updated by onResults. 
+                // We smooth them here for physics feel.
+                
+                let targetExpand = 1.0;
+                let targetScale = 1.0;
+
+                if (this.config.mode === 'mouse') {
+                    // In mouse mode, Mouse Y controls expansion
+                    targetExpand = 0.5 + (this.handState.distance * 2.5); // 0.5 to 3.0
+                    targetScale = 1.0; 
+                    
+                    // Gentle rotation based on mouse X
+                    this.particles.rotation.y += (this.mouse.x * 0.02);
+                } else {
+                    // Camera Mode
+                    if (this.handState.isActive) {
+                        // Map distance (0-0.8) to expansion (0.5 - 3.0)
+                        targetExpand = 0.5 + (this.handState.distance * 4);
+                        if(targetExpand > 3.5) targetExpand = 3.5;
+                        
+                        // Map pinch (0-0.5) to scale (0.2 - 2.0)
+                        // If pinch is small (fingers touching), scale is small
+                        let pinch = this.handState.pinch * 10; 
+                        targetScale = Math.min(Math.max(pinch, 0.2), 2.0);
+                    }
+                    // Auto-rotate if no interaction
+                    this.particles.rotation.y += 0.002;
+                }
+
+                // Smooth interpolation (The secret to "Perfect" feel)
+                this.handState.smoothExpand += (targetExpand - this.handState.smoothExpand) * 0.05;
+                this.handState.smoothScale += (targetScale - this.handState.smoothScale) * 0.1;
+
+                // --- 2. PARTICLE PHYSICS ---
+                const positions = this.geometry.attributes.position.array;
+                const targets = this.geometry.attributes.target.array;
+                const randoms = this.geometry.attributes.aRandom.array;
+
+                for(let i=0; i<this.config.count; i++) {
+                    const i3 = i*3;
+                    
+                    // Base target position
+                    let tx = targets[i3];
+                    let ty = targets[i3+1];
+                    let tz = targets[i3+2];
+
+                    // Apply Expansion (Explosion effect)
+                    tx *= this.handState.smoothExpand;
+                    ty *= this.handState.smoothExpand;
+                    tz *= this.handState.smoothExpand;
+
+                    // Add Noise / Float (Breathing effect)
+                    const noise = Math.sin(this.time + randoms[i] * 10) * (0.2 * this.handState.smoothExpand);
+                    tx += noise;
+                    ty += noise;
+                    tz += noise;
+
+                    // Physics Lerp: Move current pos towards target
+                    // Random speed per particle for organic feel
+                    const speed = 0.03 + (randoms[i] * 0.02);
+                    
+                    positions[i3]   += (tx - positions[i3]) * speed;
+                    positions[i3+1] += (ty - positions[i3+1]) * speed;
+                    positions[i3+2] += (tz - positions[i3+2]) * speed;
+                }
+                
+                this.geometry.attributes.position.needsUpdate = true;
+
+                // --- 3. GLOBAL EFFECTS ---
+                this.material.size = this.config.size * this.handState.smoothScale;
+                
+                // Dynamic Color pulsing
+                // const hsl = this.config.color.getHSL({});
+                // this.material.color.setHSL(hsl.h, hsl.s, hsl.l + Math.sin(this.time)*0.1);
+
+                this.composer.render();
+            }
+
+            // MediaPipe Handler
+            updateHands(results) {
+                if(results.multiHandLandmarks && results.multiHandLandmarks.length > 0) {
+                    this.handState.isActive = true;
+                    
+                    // 1. Expansion (Distance between two hands)
+                    if(results.multiHandLandmarks.length === 2) {
+                        const h1 = results.multiHandLandmarks[0][0]; // Wrist
+                        const h2 = results.multiHandLandmarks[1][0]; // Wrist
+                        const dist = Math.sqrt(Math.pow(h1.x-h2.x, 2) + Math.pow(h1.y-h2.y, 2));
+                        this.handState.distance = dist;
+                        
+                        document.getElementById('status-text').innerText = "Two Hands: Expanding";
+                    } else {
+                        // Single hand default
+                        this.handState.distance = 0.2; 
+                        document.getElementById('status-text').innerText = "One Hand: Pinched Scaling";
+                    }
+
+                    // 2. Pinch (Average of all hands)
+                    let totalPinch = 0;
+                    results.multiHandLandmarks.forEach(hand => {
+                        const thumb = hand[4];
+                        const index = hand[8];
+                        const d = Math.sqrt(Math.pow(thumb.x-index.x, 2) + Math.pow(thumb.y-index.y, 2));
+                        totalPinch += d;
+                    });
+                    this.handState.pinch = totalPinch / results.multiHandLandmarks.length;
+
+                    document.getElementById('status-light').classList.add('active');
+                } else {
+                    this.handState.isActive = false;
+                    document.getElementById('status-text').innerText = "Waiting for hands...";
+                    document.getElementById('status-light').classList.remove('active');
+                }
+            }
+        }
+
+        // --- APP INITIALIZATION ---
+        const app = new ParticleApp();
+        window.app = app; // Expose for HTML buttons
+
+        // --- CAMERA SETUP ---
+        const videoElement = document.getElementsByClassName('input_video')[0];
+        
+        const hands = new Hands({locateFile: (file) => {
+            return `https://cdn.jsdelivr.net/npm/@mediapipe/hands/${file}`;
+        }});
+
+        hands.setOptions({
+            maxNumHands: 2,
+            modelComplexity: 1,
+            minDetectionConfidence: 0.5,
+            minTrackingConfidence: 0.5
+        });
+
+        hands.onResults((results) => {
+            document.getElementById('overlay').classList.add('hidden'); // Hide loader on first frame
+            app.updateHands(results);
+        });
+
+        // Safe Camera Start
+        async function startCamera() {
+            try {
+                const stream = await navigator.mediaDevices.getUserMedia({ video: true });
+                // If we get here, permission granted. Stop manual stream and start CameraUtils
+                stream.getTracks().forEach(t => t.stop());
+
+                const camera = new Camera(videoElement, {
+                    onFrame: async () => {
+                        await hands.send({image: videoElement});
+                    },
+                    width: 640,
+                    height: 480
+                });
+                camera.start();
+            } catch (e) {
+                console.error("Camera failed", e);
+                document.getElementById('loader').style.display = 'none';
+                document.getElementById('error-msg').style.display = 'block';
+                document.getElementById('status-light').classList.add('error');
+                document.getElementById('status-text').innerText = "Camera Error";
+            }
+        }
+
+        startCamera();
+
+    </script>
+</body>
+</html>
